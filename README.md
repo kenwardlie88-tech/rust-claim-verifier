@@ -50,6 +50,18 @@ Example specification: [`examples/spec.example.json`](examples/spec.example.json
 }
 ```
 
+## Runnable example
+
+[`examples/vault`](examples/vault) is a synthetic two-build target: the attack passes on the
+`vulnerable` build and fails on the `fixed` build. Remove the signature check from the fixed build
+and the verdict flips to `REFUTED` — which is the point.
+
+```bash
+python3 verifikator/verifikator.py examples/vault/spec.json
+```
+
+## Why two-sided controls
+
 ## Why two-sided controls
 
 A test that cannot fail is decoration. The fixed build is what makes the test honest: if the attack
