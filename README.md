@@ -13,8 +13,8 @@ same test against both and records a verdict only if:
 1. **Every expectation has an observed value.** An expectation without an observation is a plan,
    not evidence.
 2. **Both sides are present.** At least one test must be expected to *pass* (attack succeeds on the
-   vulnerable build) and at least one to *fail* (attack is rejected on the fixed build).
-   A test that passes on both builds proves nothing — so the tool refuses.
+   vulnerable build) and at least one to *fail* (attack is rejected on the fixed build). A test
+   that passes on both builds proves nothing — so the tool refuses.
 3. **Non-claims are declared.** The verdict must state what the run does **not** prove.
 
 Violate any of these and the tool exits `2` and writes **nothing**.
@@ -38,33 +38,35 @@ Example specification: [`examples/spec.example.json`](examples/spec.example.json
 ```json
 {
   "id": "V-101",
-  "klaim": "pemanggil tanpa hak dapat memindahkan dana keluar dari vault yang bukan miliknya",
-  "harapan": [
-    { "proyek": "programs/target-rentan",     "tes": "serangan_memindahkan_dana", "harus": "lulus" },
-    { "proyek": "programs/target-diperbaiki", "tes": "serangan_memindahkan_dana", "harus": "gagal" }
+  "claim": "an unprivileged caller can move funds out of a vault it does not own",
+  "expectations": [
+    { "project": "programs/target-vulnerable", "test": "attack_moves_funds", "must": "pass" },
+    { "project": "programs/target-fixed",      "test": "attack_moves_funds", "must": "fail" }
   ],
-  "tidak_diklaim": [
-    "tidak membuktikan isu ini ada pada program yang sudah ter-deploy",
-    "tidak menguji jalur reentrancy"
+  "not_claimed": [
+    "does not prove the issue exists in the deployed program",
+    "does not cover re-entrancy paths"
   ]
 }
 ```
 
-Key names are Indonesian (`klaim` = claim, `harapan` = expectations, `harus` = must,
-`tidak_diklaim` = not claimed) because the tool was written and tested that way; rename them in the
-source if you prefer another language.
-
 ## Why two-sided controls
 
-A test that cannot fail is decoration. The fixed build is what makes the test honest: if the
-attack still passes after the fix, then either the fix is incomplete or the test is measuring the
-wrong thing. Either way, there is no finding — there is a hypothesis.
+A test that cannot fail is decoration. The fixed build is what makes the test honest: if the attack
+still passes after the fix, then either the fix is incomplete or the test is measuring the wrong
+thing. Either way, there is no finding — there is a hypothesis.
 
 ## Requirements
 
-- Rust toolchain, `cargo`
-- Target projects as Cargo crates containing an integration test binary (`--test poc`)
-- No network, no mainnet interaction: everything runs on a local runtime
+- Rust toolchain and `cargo`
+- Each target as a Cargo crate with an integration test binary (`--test poc`)
+- No network access and no mainnet interaction: everything runs on a local runtime
+
+## Output
+
+One JSON record plus a Markdown summary per verdict, written to `evidence/verdicts/`, carrying the
+observed values, the expected values, and the non-claims list. A verdict without those three parts
+is refused before it reaches disk.
 
 ## License
 
