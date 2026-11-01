@@ -1,0 +1,20 @@
+{
+  "id": "V-101",
+  "klaim": "pemanggil tanpa hak dapat memindahkan dana keluar dari vault yang bukan miliknya",
+  "harapan": [
+    {
+      "proyek": "programs/target-rentan",
+      "tes": "serangan_memindahkan_dana",
+      "harus": "lulus"
+    },
+    {
+      "proyek": "programs/target-diperbaiki",
+      "tes": "serangan_memindahkan_dana",
+      "harus": "gagal"
+    }
+  ],
+  "tidak_diklaim": [
+    "tidak membuktikan isu ini ada pada program yang sudah ter-deploy",
+    "tidak menguji jalur reentrancy"
+  ]
+}
