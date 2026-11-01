@@ -31,8 +31,11 @@ def run_test(project: str, test_name: str) -> dict:
     if not (target / "Cargo.toml").exists():
         return {"ok": None, "reason": f"project not found: {target}"}
 
+    # Portable: load a local env.sh only if the caller ships one (optional).
+    env_file = BASE / "env.sh"
+    prefix = f"source {env_file} >/dev/null 2>&1; " if env_file.exists() else ""
     command = (
-        f"source {BASE}/env.sh >/dev/null 2>&1 && cd {target} && "
+        f"{prefix}cd {target} && "
         f"cargo test --release --test poc -- --exact {test_name} --nocapture"
     )
     result = subprocess.run(
