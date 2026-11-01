@@ -1,0 +1,20 @@
+{
+  "id": "EXAMPLE-001",
+  "claim": "a caller with no signature can withdraw lamports from a vault it does not own",
+  "expectations": [
+    {
+      "project": "examples/vault/vulnerable",
+      "test": "attack_withdraw_without_signature",
+      "must": "pass"
+    },
+    {
+      "project": "examples/vault/fixed",
+      "test": "attack_withdraw_without_signature",
+      "must": "fail"
+    }
+  ],
+  "not_claimed": [
+    "this is a synthetic teaching target, not a real protocol",
+    "it does not cover re-entrancy, PDAs, token accounts or Anchor account validation"
+  ]
+}
