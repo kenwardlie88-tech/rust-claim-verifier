@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Bot verifikasi temuan audit Rust/Solana — fail-closed.
+"""Fail-closed verification harness for audit claims (Rust / Solana).
 
-Aturan yang tidak bisa dilanggar:
-  1. Setiap harapan WAJIB punya nilai teramati (keluaran cargo test yang nyata).
-  2. Minimal satu harapan "lulus" (serangan berhasil di versi rentan) DAN
-     satu harapan "gagal" (serangan ditolak di versi diperbaiki). Tanpa dua sisi,
-     putusan tidak boleh disimpan — lulus tanpa kontrol negatif bukan bukti.
-  3. Daftar "tidak_diklaim" wajib ada dan tidak boleh kosong.
-  4. Putusan hanya CONFIRMED bila SEMUA harapan terpenuhi. Selain itu REFUTED.
+Invariants that cannot be bypassed:
+  1. Every expectation must carry an OBSERVED value (real `cargo test` output).
+  2. At least one expectation must be "pass" (attack succeeds on the vulnerable build)
+     AND one must be "fail" (attack is rejected on the fixed build). Without both
+     sides the verdict is refused: a pass without a negative control is not evidence.
+  3. The `not_claimed` list must be present and non-empty.
+  4. A verdict is CONFIRMED only when every expectation is met; otherwise REFUTED.
 
-Pakai:
-    python3 verifikator.py spesifikasi.json
-Keluar: 0 = CONFIRMED · 1 = REFUTED · 2 = DITOLAK (berkas tidak lengkap/alat gagal)
+Usage:
+    python3 verifikator.py spec.json
+Exit codes: 0 = CONFIRMED · 1 = REFUTED · 2 = REFUSED (incomplete spec / unmeasurable)
 """
 
 import json
@@ -22,135 +22,134 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
-KELUARAN = BASE / "evidence" / "verdicts"
+OUTPUT_DIR = BASE / "evidence" / "verdicts"
 
 
-def jalankan_tes(proyek: str, nama_tes: str) -> dict:
-    """Jalankan satu tes di satu proyek, kembalikan hasil yang teramati."""
-    direktori = BASE / proyek
-    if not (direktori / "Cargo.toml").exists():
-        return {"ok": None, "sebab": f"proyek tidak ditemukan: {direktori}"}
+def run_test(project: str, test_name: str) -> dict:
+    """Run one test in one project and return the observed result."""
+    target = BASE / project
+    if not (target / "Cargo.toml").exists():
+        return {"ok": None, "reason": f"project not found: {target}"}
 
-    perintah = (
-        f"source {BASE}/env.sh >/dev/null 2>&1 && cd {direktori} && "
-        f"cargo test --release --test poc -- --exact {nama_tes} --nocapture"
+    command = (
+        f"source {BASE}/env.sh >/dev/null 2>&1 && cd {target} && "
+        f"cargo test --release --test poc -- --exact {test_name} --nocapture"
     )
-    hasil = subprocess.run(
-        ["bash", "-lc", perintah], capture_output=True, text=True, timeout=1800
+    result = subprocess.run(
+        ["bash", "-lc", command], capture_output=True, text=True, timeout=1800
     )
-    keluaran = hasil.stdout + hasil.stderr
+    output = result.stdout + result.stderr
 
-    pola_ok = re.compile(rf"test {re.escape(nama_tes)} \.\.\. ok")
-    pola_gagal = re.compile(rf"test {re.escape(nama_tes)} \.\.\. FAILED")
-    if pola_ok.search(keluaran):
-        lulus = True
-    elif pola_gagal.search(keluaran) or hasil.returncode != 0:
-        lulus = False
+    passed_re = re.compile(rf"test {re.escape(test_name)} \.\.\. ok")
+    failed_re = re.compile(rf"test {re.escape(test_name)} \.\.\. FAILED")
+    if passed_re.search(output):
+        passed = True
+    elif failed_re.search(output) or result.returncode != 0:
+        passed = False
     else:
-        return {"ok": None, "sebab": "tes tidak menghasilkan status yang bisa dibaca"}
+        return {"ok": None, "reason": "test produced no readable status"}
 
     return {
-        "ok": lulus,
-        "proyek": proyek,
-        "tes": nama_tes,
-        "exit": hasil.returncode,
-        "baris_bukti": [
-            b.strip()
-            for b in keluaran.splitlines()
-            if nama_tes in b and ("ok" in b or "FAILED" in b or "panicked" in b)
+        "ok": passed,
+        "project": project,
+        "test": test_name,
+        "exit": result.returncode,
+        "evidence_lines": [
+            line.strip()
+            for line in output.splitlines()
+            if test_name in line and ("ok" in line or "FAILED" in line or "panicked" in line)
         ][:3],
     }
 
 
-def tolak(alasan: str) -> int:
-    print(f"  DITOLAK: {alasan}")
+def refuse(reason: str) -> int:
+    print(f"  REFUSED: {reason}")
     return 2
 
 
 def main() -> int:
     if len(sys.argv) < 2:
-        return tolak("sebutkan berkas spesifikasi JSON")
+        return refuse("provide a specification file (JSON)")
 
-    spesifikasi = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-    id_temuan = spesifikasi.get("id", "").strip()
-    klaim = spesifikasi.get("klaim", "").strip()
-    harapan = spesifikasi.get("harapan", [])
-    tidak_diklaim = [t for t in spesifikasi.get("tidak_diklaim", []) if t.strip()]
+    spec = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    finding_id = spec.get("id", "").strip()
+    claim = spec.get("claim", "").strip()
+    expectations = spec.get("expectations", [])
+    not_claimed = [n for n in spec.get("not_claimed", []) if n.strip()]
 
-    if not id_temuan:
-        return tolak("id temuan kosong")
-    if not klaim:
-        return tolak("klaim kosong — tanpa klaim tidak ada yang diverifikasi")
-    if not tidak_diklaim:
-        return tolak("daftar 'tidak_diklaim' kosong — batas bukti wajib dinyatakan")
-    if not harapan:
-        return tolak("tidak ada harapan yang diuji")
+    if not finding_id:
+        return refuse("missing 'id'")
+    if not claim:
+        return refuse("missing 'claim' — nothing to verify")
+    if not not_claimed:
+        return refuse("'not_claimed' is empty — the limits of the proof must be stated")
+    if not expectations:
+        return refuse("no expectations to test")
 
-    harus_lulus = [h for h in harapan if h.get("harus") == "lulus"]
-    harus_gagal = [h for h in harapan if h.get("harus") == "gagal"]
-    if not harus_lulus or not harus_gagal:
-        return tolak(
-            "kontrol dua sisi tidak lengkap: butuh minimal satu 'lulus' (rentan) "
-            "dan satu 'gagal' (diperbaiki). Lulus tanpa kontrol negatif bukan bukti."
+    must_pass = [e for e in expectations if e.get("must") == "pass"]
+    must_fail = [e for e in expectations if e.get("must") == "fail"]
+    if not must_pass or not must_fail:
+        return refuse(
+            "two-sided control missing: need at least one 'pass' (vulnerable build) and "
+            "one 'fail' (fixed build). A pass without a negative control is not evidence."
         )
 
-    diamati = []
-    for h in harapan:
-        print(f"  jalankan: {h['proyek']} :: {h['tes']} (harus {h['harus']})")
-        hasil = jalankan_tes(h["proyek"], h["tes"])
-        if hasil.get("ok") is None:
-            return tolak(f"tidak terukur — {hasil.get('sebab')}")
-        hasil["harus"] = h["harus"]
-        hasil["terpenuhi"] = (hasil["ok"] is True and h["harus"] == "lulus") or (
-            hasil["ok"] is False and h["harus"] == "gagal"
+    observed = []
+    for expectation in expectations:
+        print(f"  run: {expectation['project']} :: {expectation['test']} (must {expectation['must']})")
+        result = run_test(expectation["project"], expectation["test"])
+        if result.get("ok") is None:
+            return refuse(f"unmeasurable — {result.get('reason')}")
+        result["must"] = expectation["must"]
+        result["met"] = (result["ok"] is True and expectation["must"] == "pass") or (
+            result["ok"] is False and expectation["must"] == "fail"
         )
-        diamati.append(hasil)
-        tanda = "OK" if hasil["terpenuhi"] else "TIDAK TERPENUHI"
-        print(f"    lulus={hasil['ok']} · {tanda}")
+        observed.append(result)
+        print(f"    passed={result['ok']} · {'MET' if result['met'] else 'NOT MET'}")
 
-    putusan = "CONFIRMED" if all(d["terpenuhi"] for d in diamati) else "REFUTED"
+    verdict = "CONFIRMED" if all(o["met"] for o in observed) else "REFUTED"
 
-    KELUARAN.mkdir(parents=True, exist_ok=True)
-    catatan = {
-        "id": id_temuan,
-        "klaim": klaim,
-        "putusan": putusan,
-        "waktu": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "harapan": diamati,
-        "tidak_diklaim": tidak_diklaim,
-        "lingkungan": {
-            "skrip": str(Path(__file__).resolve()),
-            "basis": str(BASE),
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    record = {
+        "id": finding_id,
+        "claim": claim,
+        "verdict": verdict,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "expectations": observed,
+        "not_claimed": not_claimed,
+        "environment": {
+            "script": str(Path(__file__).resolve()),
+            "base": str(BASE),
             "python": sys.version.split()[0],
         },
     }
-    (KELUARAN / f"{id_temuan}.json").write_text(
-        json.dumps(catatan, indent=2, ensure_ascii=False), encoding="utf-8"
+    (OUTPUT_DIR / f"{finding_id}.json").write_text(
+        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    baris = [
-        f"# Putusan verifikasi {id_temuan}",
+    lines = [
+        f"# Verification verdict {finding_id}",
         "",
-        f"**Klaim:** {klaim}",
-        f"**Putusan:** **{putusan}**",
-        f"**Waktu:** {catatan['waktu']}",
+        f"**Claim:** {claim}",
+        f"**Verdict:** **{verdict}**",
+        f"**Timestamp:** {record['timestamp']}",
         "",
-        "## Harapan vs teramati",
+        "## Expectations vs observed",
         "",
-        "| Proyek | Tes | Harus | Teramati | Terpenuhi |",
+        "| Project | Test | Must | Observed | Met |",
         "|---|---|---|---|---|",
     ]
-    for d in diamati:
-        baris.append(
-            f"| {d['proyek']} | `{d['tes']}` | {d['harus']} | "
-            f"{'lulus' if d['ok'] else 'gagal'} | {'ya' if d['terpenuhi'] else 'TIDAK'} |"
+    for o in observed:
+        lines.append(
+            f"| {o['project']} | `{o['test']}` | {o['must']} | "
+            f"{'pass' if o['ok'] else 'fail'} | {'yes' if o['met'] else 'NO'} |"
         )
-    baris += ["", "## Tidak diklaim", ""] + [f"- {t}" for t in tidak_diklaim]
-    (KELUARAN / f"{id_temuan}.md").write_text("\n".join(baris) + "\n", encoding="utf-8")
+    lines += ["", "## Not claimed", ""] + [f"- {n}" for n in not_claimed]
+    (OUTPUT_DIR / f"{finding_id}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    print(f"  putusan: {putusan}")
-    print(f"  tersimpan: {KELUARAN / (id_temuan + '.json')}")
-    return 0 if putusan == "CONFIRMED" else 1
+    print(f"  verdict: {verdict}")
+    print(f"  saved: {OUTPUT_DIR / (finding_id + '.json')}")
+    return 0 if verdict == "CONFIRMED" else 1
 
 
 if __name__ == "__main__":
