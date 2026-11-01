@@ -1,20 +1,20 @@
 {
   "id": "V-101",
-  "klaim": "pemanggil tanpa hak dapat memindahkan dana keluar dari vault yang bukan miliknya",
-  "harapan": [
+  "claim": "an unprivileged caller can move funds out of a vault it does not own",
+  "expectations": [
     {
-      "proyek": "programs/target-rentan",
-      "tes": "serangan_memindahkan_dana",
-      "harus": "lulus"
+      "project": "programs/target-vulnerable",
+      "test": "attack_moves_funds",
+      "must": "pass"
     },
     {
-      "proyek": "programs/target-diperbaiki",
-      "tes": "serangan_memindahkan_dana",
-      "harus": "gagal"
+      "project": "programs/target-fixed",
+      "test": "attack_moves_funds",
+      "must": "fail"
     }
   ],
-  "tidak_diklaim": [
-    "tidak membuktikan isu ini ada pada program yang sudah ter-deploy",
-    "tidak menguji jalur reentrancy"
+  "not_claimed": [
+    "does not prove the issue exists in the deployed program",
+    "does not cover re-entrancy paths"
   ]
 }
